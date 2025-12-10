@@ -1,6 +1,3 @@
-/* global use, db */
-/* eslint-disable no-undef */
-
 // ============================================================================
 // TP2 : Requêtage avancé et pipeline d'agrégation MongoDB
 // Fichier d'exercices interactif - BUT3 Informatique
@@ -8,21 +5,19 @@
 //
 // INFORMATIONS ÉTUDIANT (à compléter)
 // ------------------------------------
-// Nom      : ___________________
-// Prénom   : ___________________
-// Groupe   : ___________________
-// Date     : ___________________
+// Nom      : SERRE
+// Prénom   : Lucas
+// Groupe   : 3G1
+// Date     : 01/12/2025
 //
 // ============================================================================
 //
 // Instructions :
 // 1. Ouvrir ce fichier dans VS Code avec l'extension MongoDB for VS Code
 // 2. Connectez-vous à votre cluster Atlas
-// 3. IMPORTANT : Exécutez d'abord la ligne use("sample_restaurants") ci-dessous
-//    avant d'exécuter des sélections partielles
-// 4. Exécutez les blocs de code avec Ctrl+Alt+R (ou clic droit > Run)
-// 5. Complétez les exercices dans les zones "// TODO"
-// 6. Committez régulièrement votre travail
+// 3. Exécutez les blocs de code avec Ctrl+Alt+R (ou clic droit > Run)
+// 4. Complétez les exercices dans les zones "// TODO"
+// 5. Committez régulièrement votre travail
 //
 // Correspondance exercices README ↔ Playground :
 // ----------------------------------------------
@@ -54,14 +49,14 @@ use("sample_restaurants");
 
 // Vérifier que les données sont bien chargées
 db.restaurants.countDocuments();
-
+// Résultat attendu : ~25359 documents
 
 // Voir la structure d'un document
 db.restaurants.findOne();
 
 // Vérifier la collection neighborhoods
 db.neighborhoods.countDocuments();
-
+// Résultat attendu : ~195 documents
 
 
 // ############################################################################
@@ -69,100 +64,193 @@ db.neighborhoods.countDocuments();
 // ############################################################################
 
 // ============================================================================
-// Exercice 1 : $elemMatch simple
+// EXERCICE 1 : $elemMatch simple
 // ============================================================================
-// Objectif : Trouver les restaurants qui ont reçu un grade "B" avec un
-//            score inférieur à 10 dans la MÊME inspection
-// Difficulté : ⭐☆☆ (1/3)
+// Objectif : Restaurants avec grade "B" ET score < 10 dans la MÊME inspection
 //
-// Rappel : Sans $elemMatch, MongoDB cherche les conditions indépendamment
-//          dans le tableau. Avec $elemMatch, TOUTES les conditions doivent
-//          être satisfaites par le MÊME élément.
+// EXPLICATION :
+// Sans $elemMatch, les conditions sont évaluées indépendamment :
+//   "grades.grade": "B"      → cherche un "B" quelque part
+//   "grades.score": {$lt:10} → cherche un score < 10 quelque part
+//   → Ces deux conditions peuvent être satisfaites par des éléments DIFFÉRENTS
 //
+// Avec $elemMatch, un SEUL élément doit satisfaire TOUTES les conditions
 // ============================================================================
 
-// TODO : Compléter la requête
+// SOLUTION :
+db.restaurants.find({
+    grades: {
+        $elemMatch: {
+            grade: "B",
+            score: { $lt: 10 }
+        }
+    }
+});
 
+// Vérification du nombre de résultats
+db.restaurants.countDocuments({
+    grades: { $elemMatch: { grade: "B", score: { $lt: 10 } } }
+});
+// Résultat attendu : ~2800 documents
 
 
 // ============================================================================
-// Exercice 2 : $elemMatch avec plage de dates
+// EXERCICE 2 : $elemMatch avec plage de dates
 // ============================================================================
-// Objectif : Trouver les restaurants qui ont eu une inspection en 2014
-//            avec un grade "A"
-// Difficulté : ⭐⭐☆ (2/3)
+// Objectif : Restaurants inspectés en 2014 avec grade "A"
 //
-// Indice : Pour filtrer l'année 2014, utilisez une plage de dates :
-//          $gte: ISODate("2014-01-01") et $lt: ISODate("2015-01-01")
+// EXPLICATION :
+// Les dates MongoDB sont des objets ISODate. Pour filtrer une année,
+// on définit une plage : du 1er janvier 2014 au 1er janvier 2015 (exclu)
+// ============================================================================
+
+// SOLUTION :
+db.restaurants.find({
+    grades: {
+        $elemMatch: {
+            grade: "A",
+            date: {
+                $gte: ISODate("2014-01-01T00:00:00Z"),
+                $lt: ISODate("2015-01-01T00:00:00Z")
+            }
+        }
+    }
+});
+
+// Vérification
+db.restaurants.countDocuments({
+    grades: {
+        $elemMatch: {
+            grade: "A",
+            date: { $gte: ISODate("2014-01-01"), $lt: ISODate("2015-01-01") }
+        }
+    }
+});
+// Résultat attendu : ~18000 documents
+
+
+// ============================================================================
+// EXERCICE 3 : $elemMatch avec $or
+// ============================================================================
+// Objectif : Restaurants avec au moins une mauvaise inspection
+//            (grade "C" OU score > 30)
 //
+// EXPLICATION :
+// On utilise $or à l'INTÉRIEUR de $elemMatch pour que les conditions
+// alternatives s'appliquent au même élément du tableau
 // ============================================================================
 
-// TODO : Compléter la requête
+// SOLUTION :
+db.restaurants.find({
+    grades: {
+        $elemMatch: {
+            $or: [
+                { grade: "C" },
+                { score: { $gt: 30 } }
+            ]
+        }
+    }
+});
 
+// Vérification
+db.restaurants.countDocuments({
+    grades: { $elemMatch: { $or: [{ grade: "C" }, { score: { $gt: 30 } }] } }
+});
+// Résultat attendu : ~4500 documents
 
 
 // ============================================================================
-// Exercice 3 : $elemMatch avec $or
+// EXERCICE 4 : $expr avec $size
 // ============================================================================
-// Objectif : Trouver les restaurants avec au moins une MAUVAISE inspection
-//            (grade "C" OU score supérieur à 30)
-// Difficulté : ⭐⭐☆ (2/3)
+// Objectif : Restaurants avec exactement 4 inspections
 //
-// Indice : Combinez $elemMatch avec $or à l'intérieur
+// EXPLICATION :
+// $expr permet d'utiliser des opérateurs d'agrégation dans find()
+// $size retourne la taille d'un tableau
+// $eq compare deux valeurs pour l'égalité
+// ============================================================================
+
+// SOLUTION :
+db.restaurants.find({
+    $expr: {
+        $eq: [{ $size: "$grades" }, 4]
+    }
+});
+
+// Vérification
+db.restaurants.countDocuments({
+    $expr: { $eq: [{ $size: "$grades" }, 4] }
+});
+// Résultat attendu : ~3500 documents
+
+// ALTERNATIVE avec $size dans la requête (exactement N éléments) :
+db.restaurants.countDocuments({ grades: { $size: 4 } });
+// Note : Cette syntaxe ne fonctionne que pour l'égalité exacte
+
+
+// ============================================================================
+// EXERCICE 5 : Comparer des éléments du tableau
+// ============================================================================
+// Objectif : Restaurants améliorés (dernier score < premier score)
 //
+// EXPLICATION :
+// $arrayElemAt extrait un élément à un index donné :
+//   - Index 0 = premier élément
+//   - Index -1 = dernier élément
+// Un score plus bas est meilleur, donc on cherche où dernier < premier
 // ============================================================================
 
-// TODO : Compléter la requête
+// SOLUTION :
+db.restaurants.find({
+    $expr: {
+        $lt: [
+            { $arrayElemAt: ["$grades.score", -1] },  // Dernier score
+            { $arrayElemAt: ["$grades.score", 0] }    // Premier score
+        ]
+    }
+});
+
+// Note : Cette requête peut retourner des résultats inattendus si grades est vide
+// Version robuste :
+db.restaurants.find({
+    $expr: {
+        $and: [
+            { $gt: [{ $size: "$grades" }, 1] },  // Au moins 2 inspections
+            { $lt: [
+                { $arrayElemAt: ["$grades.score", -1] },
+                { $arrayElemAt: ["$grades.score", 0] }
+            ]}
+        ]
+    }
+});
 
 
 // ============================================================================
-// Exercice 4 : $expr avec $size
+// EXERCICE 6 : Validation de données
 // ============================================================================
-// Objectif : Trouver les restaurants qui ont exactement 4 inspections
-// Difficulté : ⭐⭐☆ (2/3)
+// Objectif : Restaurants où borough est manquant ou vide
 //
-// Rappel : $expr permet d'utiliser des expressions d'agrégation dans find()
-//          $size retourne la taille d'un tableau
-//          $eq: [valeur1, valeur2] teste l'égalité
-//
+// EXPLICATION :
+// $exists: false vérifie que le champ n'existe pas
+// borough: "" vérifie que le champ existe mais est une chaîne vide
 // ============================================================================
 
-// TODO : Compléter la requête
+// SOLUTION :
+db.restaurants.find({
+    $or: [
+        { borough: { $exists: false } },
+        { borough: "" }
+    ]
+});
 
-
-
-// ============================================================================
-// Exercice 5 : Comparer des éléments du tableau
-// ============================================================================
-// Objectif : Trouver les restaurants qui se sont AMÉLIORÉS :
-//            le score de la dernière inspection est meilleur (plus bas)
-//            que celui de la première
-// Difficulté : ⭐⭐⭐ (3/3)
-//
-// Indice :
-//   - $arrayElemAt: ["$grades.score", 0]  → premier élément
-//   - $arrayElemAt: ["$grades.score", -1] → dernier élément
-//   - Un score plus bas est meilleur, donc utilisez $lt
-//
-// ============================================================================
-
-// TODO : Compléter la requête
-
-
-
-// ============================================================================
-// Exercice 6 : Validation de données
-// ============================================================================
-// Objectif : Trouver tous les restaurants où le champ "borough" est
-//            manquant ou vide (chaîne vide "")
-// Difficulté : ⭐☆☆ (1/3)
-//
-// Indice : Utilisez $or avec $exists: false et borough: ""
-//
-// ============================================================================
-
-// TODO : Compléter la requête
-
+// Version plus complète incluant null :
+db.restaurants.find({
+    $or: [
+        { borough: { $exists: false } },
+        { borough: null },
+        { borough: "" }
+    ]
+});
 
 
 // ============================================================================
@@ -184,57 +272,93 @@ db.neighborhoods.countDocuments();
 // ############################################################################
 
 // ============================================================================
-// Exercice 7 : Pipeline simple - Comptage par quartier
+// EXERCICE 7 : Pipeline simple - Comptage par quartier
 // ============================================================================
-// Objectif : Afficher le nombre de restaurants par quartier,
-//            trié du plus grand au plus petit
-// Difficulté : ⭐☆☆ (1/3)
+// Objectif : Nombre de restaurants par quartier, trié décroissant
 //
-// Étapes :
-//   1. $group par borough avec $sum: 1 pour compter
-//   2. $sort par count décroissant (-1)
+// EXPLICATION :
+// $group avec _id définit le champ de regroupement
+// $sum: 1 compte le nombre de documents dans chaque groupe
+// $sort: {count: -1} trie par count décroissant
+// ============================================================================
+
+// SOLUTION :
+db.restaurants.aggregate([
+    {
+        $group: {
+            _id: "$borough",
+            count: { $sum: 1 }
+        }
+    },
+    {
+        $sort: { count: -1 }
+    }
+]);
+
+// Résultat attendu :
+// Manhattan: ~10259, Brooklyn: ~6086, Queens: ~5656, Bronx: ~2338, Staten Island: ~969
+
+
+// ============================================================================
+// EXERCICE 8 : Pipeline avec filtre - Top cuisines à Manhattan
+// ============================================================================
+// Objectif : Top 5 des cuisines à Manhattan
 //
+// EXPLICATION :
+// L'ordre des étapes est important :
+// 1. $match d'abord pour réduire les données (performance)
+// 2. $group pour compter par cuisine
+// 3. $sort pour ordonner
+// 4. $limit pour garder les 5 premiers
 // ============================================================================
 
-// TODO : Compléter le pipeline
+// SOLUTION :
+db.restaurants.aggregate([
+    { $match: { borough: "Manhattan" } },
+    { $group: {
+        _id: "$cuisine",
+        count: { $sum: 1 }
+    }},
+    { $sort: { count: -1 } },
+    { $limit: 5 }
+]);
 
+// Résultat attendu :
+// American: ~3205, Café/Coffee/Tea: ~1039, Italian: ~932, Chinese: ~826, Japanese: ~517
 
 
 // ============================================================================
-// Exercice 8 : Pipeline avec filtre - Top cuisines à Manhattan
+// EXERCICE 9 : Groupement avec $addToSet
 // ============================================================================
-// Objectif : Afficher le top 5 des types de cuisine à Manhattan
-// Difficulté : ⭐⭐☆ (2/3)
+// Objectif : Nombre de cuisines différentes par quartier
 //
-// Étapes :
-//   1. $match pour filtrer Manhattan
-//   2. $group par cuisine
-//   3. $sort décroissant
-//   4. $limit à 5
-//
+// EXPLICATION :
+// $addToSet collecte les valeurs UNIQUES (comme un Set)
+// $size dans $project compte le nombre d'éléments
 // ============================================================================
 
-// TODO : Compléter le pipeline
+// SOLUTION :
+db.restaurants.aggregate([
+    {
+        $group: {
+            _id: "$borough",
+            cuisines: { $addToSet: "$cuisine" }
+        }
+    },
+    {
+        $project: {
+            _id: 0,
+            quartier: "$_id",
+            nb_cuisines: { $size: "$cuisines" }
+        }
+    },
+    {
+        $sort: { nb_cuisines: -1 }
+    }
+]);
 
-
-
-// ============================================================================
-// Exercice 9 : Groupement avec $addToSet
-// ============================================================================
-// Objectif : Pour chaque quartier, afficher le nombre de types de
-//            cuisine DIFFÉRENTS
-// Difficulté : ⭐⭐⭐ (3/3)
-//
-// Indice : Utilisez $addToSet pour collecter les cuisines uniques,
-//          puis $size dans un $project pour compter
-//
-// Structure attendue :
-// { quartier: "Manhattan", nb_cuisines: 75 }
-//
-// ============================================================================
-
-// TODO : Compléter le pipeline
-
+// Résultat attendu :
+// Manhattan: ~75, Brooklyn: ~70, Queens: ~70, Bronx: ~53, Staten Island: ~45
 
 // ============================================================================
 // CHECKPOINT PHASE 2
@@ -257,39 +381,69 @@ db.neighborhoods.countDocuments();
 // ############################################################################
 
 // ============================================================================
-// Exercice 10 : $unwind + $group - Score moyen par année
+// EXERCICE 10 : $unwind + $group - Score moyen par année
 // ============================================================================
-// Objectif : Calculer le score moyen par année pour toutes les inspections
-// Difficulté : ⭐⭐⭐ (3/3)
+// Objectif : Score moyen par année pour toutes les inspections
 //
-// Étapes :
-//   1. $unwind sur grades (dérouler le tableau)
-//   2. $group par année (utiliser $year sur grades.date)
-//   3. Calculer $avg sur grades.score
-//   4. $sort par année
-//
-// Structure attendue :
-// { _id: 2012, avg_score: 10.8, count: 15234 }
-//
+// EXPLICATION :
+// $unwind transforme : {grades: [{...}, {...}]} → 2 documents séparés
+// $year extrait l'année d'une date
+// $avg calcule la moyenne
 // ============================================================================
 
-// TODO : Compléter le pipeline
+// SOLUTION :
+db.restaurants.aggregate([
+    { $unwind: "$grades" },
+    {
+        $group: {
+            _id: { $year: "$grades.date" },
+            avg_score: { $avg: "$grades.score" },
+            count: { $sum: 1 }
+        }
+    },
+    { $sort: { _id: 1 } }
+]);
+
+// Résultat attendu (approximatif) :
+// 2011: avg_score ~9.8
+// 2012: avg_score ~10.5
+// 2013: avg_score ~11.2
+// 2014: avg_score ~11.8
 
 
 // ============================================================================
-// Exercice 11 : Analyse par quartier - Inspections
+// EXERCICE 11 : Analyse par quartier - Inspections
 // ============================================================================
-// Objectif : Pour chaque quartier, calculer :
-//            - Le nombre TOTAL d'inspections (pas de restaurants!)
-//            - Le score moyen de toutes les inspections
-// Difficulté : ⭐⭐⭐ (3/3)
+// Objectif : Nombre total d'inspections et score moyen par quartier
 //
-// Attention : Il faut d'abord $unwind les grades pour avoir une ligne
-//             par inspection, puis grouper par borough
-//
+// EXPLICATION :
+// Attention : on compte les INSPECTIONS, pas les restaurants
+// Il faut d'abord $unwind pour avoir une ligne par inspection
 // ============================================================================
 
-// TODO : Compléter le pipeline
+// SOLUTION :
+db.restaurants.aggregate([
+    { $unwind: "$grades" },
+    {
+        $group: {
+            _id: "$borough",
+            nb_inspections: { $sum: 1 },
+            score_moyen: { $avg: "$grades.score" }
+        }
+    },
+    {
+        $project: {
+            _id: 0,
+            quartier: "$_id",
+            nb_inspections: 1,
+            score_moyen: { $round: ["$score_moyen", 1] }
+        }
+    },
+    { $sort: { nb_inspections: -1 } }
+]);
+
+// Résultat attendu :
+// Manhattan: ~50000 inspections, Brooklyn: ~29000, Queens: ~27000...
 
 
 // ============================================================================
@@ -496,29 +650,105 @@ db.neighborhoods.countDocuments();
 // ============================================================================
 
 // TODO : Compléter le pipeline
-// db.restaurants.aggregate([
-//     { $facet: {
-//         // Vue d'ensemble
-//         overview: [
-//             // TODO
-//         ],
+ // SOLUTION COMPLÈTE :
+db.restaurants.aggregate([
+    {
+        $facet: {
+            // ============================================
+            // Vue d'ensemble
+            // ============================================
+            overview: [
+                {
+                    $group: {
+                        _id: null,
+                        total_restaurants: { $sum: 1 },
+                        cuisines: { $addToSet: "$cuisine" }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        total_restaurants: 1,
+                        total_cuisines: { $size: "$cuisines" }
+                    }
+                }
+            ],
 
-//         // Top quartiers
-//         top_quartiers: [
-//             // TODO
-//         ],
+            // ============================================
+            // Top 5 des quartiers
+            // ============================================
+            top_quartiers: [
+                { $unwind: "$grades" },
+                {
+                    $group: {
+                        _id: "$borough",
+                        nb_restaurants: { $addToSet: "$_id" },
+                        score_moyen: { $avg: "$grades.score" }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        quartier: "$_id",
+                        nb_restaurants: { $size: "$nb_restaurants" },
+                        score_moyen: { $round: ["$score_moyen", 1] }
+                    }
+                },
+                { $sort: { nb_restaurants: -1 } },
+                { $limit: 5 }
+            ],
 
-//         // Distribution des grades
-//         distribution_grades: [
-//             // TODO
-//         ],
+            // ============================================
+            // Distribution des grades
+            // ============================================
+            distribution_grades: [
+                { $unwind: "$grades" },
+                {
+                    $group: {
+                        _id: "$grades.grade",
+                        count: { $sum: 1 }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        grade: "$_id",
+                        count: 1
+                    }
+                },
+                { $sort: { grade: 1 } }
+            ],
 
-//         // Evolution annuelle
-//         evolution_annuelle: [
-//             // TODO
-//         ]
-//     }}
-// ]);
+            // ============================================
+            // Evolution annuelle
+            // ============================================
+            evolution_annuelle: [
+                { $unwind: "$grades" },
+                {
+                    $group: {
+                        _id: { $year: "$grades.date" },
+                        score_moyen: { $avg: "$grades.score" },
+                        nb_inspections: { $sum: 1 }
+                    }
+                },
+                {
+                    $match: {
+                        _id: { $gte: 2012, $lte: 2014 }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        annee: "$_id",
+                        score_moyen: { $round: ["$score_moyen", 1] },
+                        nb_inspections: 1
+                    }
+                },
+                { $sort: { annee: 1 } }
+            ]
+        }
+    }
+]);
 
 
 // ============================================================================
